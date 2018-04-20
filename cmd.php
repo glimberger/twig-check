@@ -6,7 +6,6 @@ require __DIR__ . '/vendor/autoload.php';
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Finder\Finder;
@@ -24,7 +23,7 @@ try {
             $path = $input->getArgument('path');
             $verbose = $output->isVerbose();
 
-            $io->note('Reading templates...');
+            if ($verbose) $io->note('Reading templates...');
 
             $templatesPath = $path . '/var/cache/dev/templates.php';
             if (!file_exists($templatesPath)) {
@@ -45,10 +44,8 @@ try {
             $finderTwig = new Finder();
             $finderTwig->name('/\.twig$/');
 
-            $io->note('Locating twig files...');
-
             // check directories validity
-            if ($verbose) $io->comment('Checking validity for directories to scan...');
+            if ($verbose) $io->note('Checking validity for directories to scan...');
             $dirs = [$path . '/app', $path . '/src', $path . '/templates'];
             $dirs = array_filter($dirs, function($dir) {
                return file_exists($dir);
@@ -57,10 +54,11 @@ try {
                 $io->error('Failed to locate any twig directories, aborting');
                 return;
             }
-            if ($verbose) $io->comment('Directories to scan : '.implode(', ', $dirs));
+            if ($verbose) $io->comment("Directories to scan : \n".implode("\n", $dirs));
 
+            if ($verbose) $io->note('Locating twig files...');
             $finderTwig->in($dirs);
-            $io->note(iterator_count($finderTwig) . ' template files found');
+            $io->success(iterator_count($finderTwig) . ' template files found');
 
             $twigs = []; // valid files
 
@@ -69,75 +67,84 @@ try {
                 $twigs[] = $file->getRealPath();
             }
 
-            if ($verbose) $io->comment('Checking src directory validity...');
+            if ($verbose) $io->note('Checking src directory validity...');
             if (!file_exists($path . '/src')) {
                 $io->error('Failed to locate src directory, aborting');
                 return;
             }
             if ($verbose) $io->comment('Found directory : '.$path.'/src');
 
-            $validFiles = [];
+
+            if ($verbose) $io->note('Scanning files for template names...');
+
+            $valids = [];
+            $invalids = [];
 
             $finderPhp = new Finder();
-            $finderPhp->name('/\.php$/')->in($path . '/src');
+            $finderPhp->name('/\.php$/')->name('/\.twig$/')->in($dirs);
 
-            if ($verbose) $io->comment('Iterating over php files in src...');
-            if ($verbose) $io->comment('Scanning for template names in content...');
             /** @var \SplFileInfo $file */
             foreach ($finderPhp->files() as $file) {
                 $contents = $file->getContents();
 
                 if (preg_match_all('/\'(\@?[\w\/\_\.\:]+\.twig)\'/', $contents, $matches, PREG_PATTERN_ORDER)) {
-                    if ($verbose) $io->comment("Scanning {$file->getFilename()}...");
+                    if ($verbose) $io->section("Scanning in {$file->getFilename()}...");
                     $templateName = preg_replace('/^(@)([a-zA-Z\-\_]+)(\/)/','$2Bundle:' , $matches[1]);
                     $templateName = preg_replace('/(\/)([a-zA-Z\-\_\.]+)(twig)$/', ':$2$3', $templateName);
 
                     foreach ($templateName as $name) {
                         if (!isset($templates[$name])) {
-                            $io->error($name);
+                            $invalids[] = $name;
+                            if ($verbose) $io->writeln("<error>✘︎</error> {$name}");
                             continue;
                         }
 
                         $twigFile = new \SplFileInfo($templates[$name]);
-                        $validFiles[] = $twigFile->getRealPath();
-                        if ($verbose) $io->comment('[✔︎] Found : '.$twigFile->getRealPath());
+                        $valids[] = $twigFile->getRealPath();
+                        if ($verbose) $io->writeln('<info>✔︎</info>︎ '.$twigFile->getRealPath());
 
                         // includes
                         $contents = file_get_contents($twigFile->getRealPath());
 
-                        if ($verbose) $io->comment('Scanning for template names in template file content...');
                         if (preg_match_all('/\'(\@?[\w\/\_\.\:]+\.twig)\'/', $contents, $matches, PREG_PATTERN_ORDER)) {
+                            if ($verbose) $io->section("Scanning {$twigFile->getFilename()}...");
                             $result = preg_replace('/^(@)([a-zA-Z\-\_]+)(\/)/','$2Bundle:' , $matches[1]);
                             $result = preg_replace('/(\/)([a-zA-Z\-\_\.]+)(twig)$/', ':$2$3', $result);
 
-                            foreach ($result as $it) {
-                                if (!isset($templates[$it])) {
-                                    $io->error($it);
+                            foreach ($result as $item) {
+                                if (!isset($templates[$item])) {
+                                    $invalids[] = $item;
+                                    if ($verbose) $io->writeln("<error>✘</error> {$item}");
                                     continue;
                                 }
 
-                                $twigFile = new \SplFileInfo($templates[$it]);
-                                $validFiles[] = $twigFile->getRealPath();
-                                if ($verbose) $io->comment('[✔︎] Found : '.$twigFile->getRealPath());
+                                $twigFile = new \SplFileInfo($templates[$item]);
+                                $valids[] = $twigFile->getRealPath();
+                                if ($verbose) $io->writeln('<info>✔︎</info>︎ '.$twigFile->getRealPath());
                             }
                         }
                     }
                 }
             }
-            if ($verbose) $io->comment('Found '.count($validFiles).' consumed template files (duplicates)');
-            $validFiles = array_unique($validFiles);
-            if ($verbose) $io->comment('Found '.count($validFiles).' unique template files');
 
-            if ($verbose) $io->comment('Looking for orphans...');
-            $orphans = array_diff($twigs, $validFiles);
+
+
+            if ($verbose) $io->comment('Found '.count($valids).' consumed template files (duplicates)');
+            $valids = array_unique($valids);
+            if ($verbose) $io->comment('Found '.count($valids).' unique template files');
+
+            if ($verbose) $io->note('Looking for orphans...');
+            $orphans = array_diff($twigs, $valids);
 
             if (empty($orphans)) {
                 $io->success('Everything\'s fine ! 🌈');
             }
             else {
-                $io->caution(count($orphans) . ' orphans files found.');
+                $io->caution(count($orphans) . ' orphans found.');
                 $io->listing($orphans);
             }
+            $io->warning(count($invalids) . ' invalid files found.');
+            $io->listing($invalids);
 
         })
         ->getApplication()
