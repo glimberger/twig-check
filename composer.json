@@ -1,0 +1,29 @@
+{
+  "name": "guillaumelimberger/twig-check",
+  "type": "project",
+  "require": {
+    "php": ">=7.1.0",
+    "symfony/console": "^4.0",
+    "symfony/finder": "^4.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^7.1"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Guillaume Limberger",
+      "email": "glim.dev@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "TwigCheck": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
+}
